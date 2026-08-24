@@ -1,0 +1,24 @@
+import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcryptjs';
+const prisma = new PrismaClient();
+const permissions = [
+['DASHBOARD.VIEW','DASHBOARD','VIEW'],['USER.VIEW','USER','VIEW'],['USER.MANAGE','USER','MANAGE'],['TASK.VIEW','TASK','VIEW'],['TASK.CREATE','TASK','CREATE'],['TASK.UPDATE','TASK','UPDATE'],['TASK.DELETE','TASK','DELETE'],['CUSTOMER.VIEW','CUSTOMER','VIEW'],['CUSTOMER.MANAGE','CUSTOMER','MANAGE'],['LOCATION.VIEW','LOCATION','VIEW'],['LOCATION.TRACK','LOCATION','TRACK'],['ATTENDANCE.VIEW','ATTENDANCE','VIEW'],['ATTENDANCE.CREATE','ATTENDANCE','CREATE'],['ATTENDANCE.APPROVE','ATTENDANCE','APPROVE'],['SERVICE_REPORT.VIEW','SERVICE_REPORT','VIEW'],['SERVICE_REPORT.CREATE','SERVICE_REPORT','CREATE'],['SERVICE_REPORT.UPDATE','SERVICE_REPORT','UPDATE'],['SERVICE_REPORT.APPROVE','SERVICE_REPORT','APPROVE'],['SERVICE_REPORT.EXPORT','SERVICE_REPORT','EXPORT'],['LEAVE.VIEW','LEAVE','VIEW'],['LEAVE.CREATE','LEAVE','CREATE'],['LEAVE.APPROVE','LEAVE','APPROVE'],['REPORT.VIEW','REPORT','VIEW'],['REPORT.EXPORT','REPORT','EXPORT'],['BACKUP.MANAGE','BACKUP','MANAGE'],['SYSTEM.MANAGE','SYSTEM','MANAGE']];
+async function main(){
+ const pm=new Map<string,string>(); for(const [code,module,action] of permissions){const p=await prisma.permission.upsert({where:{code},update:{module,action},create:{code,module,action}});pm.set(code,p.id)}
+ const adminRole=await prisma.role.upsert({where:{name:'Admin'},update:{},create:{name:'Admin',description:'Full administrative access'}});
+ const techRole=await prisma.role.upsert({where:{name:'Technician'},update:{},create:{name:'Technician',description:'Field technician access'}});
+ for(const id of pm.values()) await prisma.rolePermission.upsert({where:{roleId_permissionId:{roleId:adminRole.id,permissionId:id}},update:{},create:{roleId:adminRole.id,permissionId:id}});
+ const techCodes=['DASHBOARD.VIEW','TASK.VIEW','TASK.UPDATE','CUSTOMER.VIEW','LOCATION.VIEW','ATTENDANCE.CREATE','SERVICE_REPORT.VIEW','SERVICE_REPORT.CREATE','SERVICE_REPORT.UPDATE','LEAVE.VIEW','LEAVE.CREATE'];
+ for(const code of techCodes){const permissionId=pm.get(code)!;await prisma.rolePermission.upsert({where:{roleId_permissionId:{roleId:techRole.id,permissionId}},update:{},create:{roleId:techRole.id,permissionId}})}
+ const admin=await prisma.user.upsert({where:{username:'admin'},update:{passwordHash:await bcrypt.hash('Admin123!',12)},create:{username:'admin',email:'admin@example.com',passwordHash:await bcrypt.hash('Admin123!',12),fullName:'System Administrator',position:'Administrator',roleId:adminRole.id,leaveEntitlement:12}});
+ const tech=await prisma.user.upsert({where:{username:'technician'},update:{passwordHash:await bcrypt.hash('Tech123!',12)},create:{username:'technician',email:'technician@example.com',passwordHash:await bcrypt.hash('Tech123!',12),fullName:'Wawan Gunawan',position:'Technician',roleId:techRole.id,leaveEntitlement:12}});
+ const category=await prisma.customerCategory.upsert({where:{name:'Contract Customer'},update:{},create:{name:'Contract Customer'}});
+ const customer=await prisma.customer.upsert({where:{id:'11111111-1111-1111-1111-111111111111'},update:{},create:{id:'11111111-1111-1111-1111-111111111111',name:'PT. John Robert Powers',companyName:'PT John Robert Powers',contactPerson:'Ahmad',phone:'08123456789',email:'client@example.com',address:'Jl. Boulevard Raya No.1A, Gading Tim., Kec. Klp. Gading, Jakarta Utara, Indonesia',latitude:-6.1583,longitude:106.9086,geofenceRadius:100,categoryId:category.id,contractStart:new Date('2026-01-01'),contractEnd:new Date('2026-12-31')}});
+ const task=await prisma.task.upsert({where:{taskCode:'TASK-2026-0001'},update:{},create:{taskCode:'TASK-2026-0001',customerId:customer.id,title:'Routine Pest Control Service',workDescription:'Inspection and treatment of office/pantry areas.',serviceArea:'Unit Office',scheduledStart:new Date(),deadline:new Date(Date.now()+86400000),status:'ASSIGNED',createdById:admin.id}});
+ await prisma.taskAssignment.upsert({where:{taskId_userId:{taskId:task.id,userId:tech.id}},update:{},create:{taskId:task.id,userId:tech.id}});
+ await prisma.schedule.deleteMany({where:{taskId:task.id}}); await prisma.schedule.create({data:{taskId:task.id,technicianId:tech.id,date:new Date()}});
+ await prisma.systemSetting.upsert({where:{key:'company_name'},update:{value:'Proteksi Pest Control'},create:{key:'company_name',value:'Proteksi Pest Control'}});
+ await prisma.systemSetting.upsert({where:{key:'company_address'},update:{value:'Komplek Pondok Cibubur Blok B2 No.10, Kelurahan Cisasak Pasar, Kota Depok, Indonesia'},create:{key:'company_address',value:'Komplek Pondok Cibubur Blok B2 No.10, Kelurahan Cisasak Pasar, Kota Depok, Indonesia'}});
+ console.log('Seed complete'); console.log('Admin: admin / Admin123!'); console.log('Technician: technician / Tech123!');
+}
+main().finally(()=>prisma.$disconnect());
